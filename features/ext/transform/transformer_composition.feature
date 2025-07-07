@@ -41,24 +41,15 @@ Feature: HCL Body Transformer Chaining
 
   Scenario: Order of execution in a chain
     Given an initial empty HCL Body
-    # TransformerX adds "attr_x", TransformerY adds "attr_y"
-    And TransformerX adds attribute "val" with initial value "X"
-    And TransformerY modifies attribute "val", appending "Y" to its existing string value if it exists, otherwise sets it to "Y"
+    # TransformerX sets attribute "step1" to "done"
+    # TransformerY sets attribute "step2" to "done" only if attribute "step1" is already "done"
+    Given TransformerX that sets attribute "step1" to "done"
+    And TransformerY that sets attribute "step2" to "done" if "step1" is "done"
     When `transform.Chain` is called with `[TransformerX, TransformerY]` to create ChainedXY
-    And ChainedXY is applied to the initial body
-    Then the attribute "val" in the resulting body should have the value "XY"
+    And ChainedXY is applied to the initial empty HCL Body to get "BodyXY"
+    Then attribute "step1" in "BodyXY" should have value "done"
+    And attribute "step2" in "BodyXY" should have value "done"
     When `transform.Chain` is called with `[TransformerY, TransformerX]` to create ChainedYX
-    And ChainedYX is applied to the initial body
-    Then the attribute "val" in the resulting body should have the value "X" (TransformerY sets it to "Y", TransformerX overwrites to "X")
-
-    # Note: The "Order of execution" scenario requires mock transformers with specific behaviors
-    # to clearly demonstrate that TransformerA's output is TransformerB's input.
-    # For simplicity in Gherkin, we describe the expected state after each transformation.
-    # The mock implementations would need to be defined in the step definitions.
-    # For the last example, TransformerY would need to be able to read the attribute set by TransformerX.
-    # The example is simplified to show ordering. A more robust test would involve distinct modifications.
-    # Let's refine the last scenario example for clarity:
-    # TransformerX sets attr "step1" to "done"
-    # TransformerY, if "step1" is "done", sets attr "step2" to "done"
-    # Chain [X, Y] -> final body has step1="done", step2="done"
-    # Chain [Y, X] -> final body has step1="done", but step2 is NOT "done" (because Y ran first)
+    And ChainedYX is applied to the initial empty HCL Body to get "BodyYX"
+    Then attribute "step1" in "BodyYX" should have value "done"
+    And attribute "step2" in "BodyYX" should not exist or not be "done"

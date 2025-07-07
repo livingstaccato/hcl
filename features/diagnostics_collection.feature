@@ -19,7 +19,7 @@ Feature: HCL Diagnostics Collection Management
       | 1 Error: Sum="E1", Det="D1", Subj="S1"       | "S1: E1; D1"                                                    |
       | 2 Errors: (Sum="E1",Det="D1",Subj="S1"), (Sum="E2",Det="D2",Subj="S2") | "S1: E1; D1, and 1 other diagnostic(s)"                       |
       | 1 Warning: Sum="W1", Det="D1", Subj="S1"     | "S1: W1; D1"                                                    | # A warning also has an Error() string for the individual diagnostic
-      | 1 Warning, 1 Error (Error first in list)     | "ErrorSubject: ErrorSummary; ErrorDetail, and 1 other diagnostic(s)" | # Assuming error is first
+      | 1 Error (SubjectE, SummaryE, DetailE) then 1 Warning (SubjectW, SummaryW, DetailW) | "SubjectE: SummaryE; DetailE, and 1 other diagnostic(s)" |
 
   Scenario: Appending a single diagnostic to a Diagnostics list
     Given an empty `hcl.Diagnostics` list "diagsList"
