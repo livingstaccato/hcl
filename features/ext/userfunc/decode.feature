@@ -1,36 +1,53 @@
-# Covers tests in ./ext/userfunc/decode_test.go
-# Specifically, TestDecodeUserFunctions
+# Covers functions in ./ext/userfunc/public.go and ./ext/userfunc/decode.go
+# Based on test cases in ./ext/userfunc/decode_test.go (TestDecodeUserFunctions)
 
-Feature: User-Defined Function Decoding and Execution
-  This feature tests the decoding of HCL `function` blocks and the subsequent
-  execution of these user-defined functions within HCL expressions.
+Feature: User-Defined HCL Functions
+  This feature tests the `DecodeUserFunctions` capability, allowing users to define
+  custom functions within HCL configuration that can then be called in expressions.
+  It covers function definition syntax, parameter handling (including variadic),
+  result expression evaluation, context/closure behavior, and error handling.
 
-  Scenario Outline: Defining and calling user functions
-    Given an HCL configuration defining functions:
+  Scenario Outline: Defining and calling user-defined functions
+    Given an HCL configuration string defining functions:
       """
-      <function_definitions>
+      <hcl_function_definitions>
       """
-    And a base evaluation context <base_context_setup>
-    When the user functions are decoded from the configuration
-    And the HCL expression `<test_expression>` is parsed
-    And the parsed expression is evaluated using the decoded user functions
-    Then the resulting value should be <expected_value>
-    And the total number of diagnostics (from function decoding and expression evaluation) should be <diagnostics_count>
+    And a base `hcl.EvalContext` is prepared <base_context_description>
+    And a `ContextFunc` that returns this base context
+    When `DecodeUserFunctions` is called with the parsed HCL body, block type "function", and the ContextFunc
+    Then the number of diagnostics from decoding functions should be <decode_diag_count>
+    And if <decode_diag_count> is 0, a map of functions should be returned.
+    When the HCL expression "<test_hcl_expression>" is parsed
+    And evaluated with an EvalContext containing the decoded user functions (and the base context for closure tests)
+    Then the resulting cty.Value should be <expected_cty_value>
+    And the total number of evaluation diagnostics should be <eval_diag_count>
 
     Examples:
-      | function_definitions                                       | test_expression        | base_context_setup             | expected_value                 | diagnostics_count |
-      | function "greet" { params = [name] result = "Hello, ${name}." } | greet("Ermintrude")    | (none)                         | "Hello, Ermintrude."           | 0                 |
-      | function "greet" { params = [name] result = "Hello, ${name}." } | greet()                | (none)                         | (dynamic)                      | 1                 |
-      | function "greet" { params = [name] result = "Hello, ${name}." } | greet("Ermintrude", "extra") | (none)                   | (dynamic)                      | 1                 |
-      | function "add" { params = [a, b] result = a + b }            | add(1, 5)              | (none)                         | 6                              | 0                 |
-      | function "argstuple" { params = [] variadic_param = args result = args } | argstuple("a", true, 1) | (none)                    | ["a", true, 1] (tuple)         | 0                 |
-      | function "missing_var" { params = [] result = nonexist }     | missing_var()          | (none)                         | (dynamic)                      | 1                 |
-      | function "closure" { params = [] result = upvalue }          | closure()              | with variable "upvalue" = true | true                           | 0                 |
-      | function "neg" { params = [val] result = -val } function "add" { params = [a, b] result = a + b } | neg(add(1, 3))         | (none)                         | -4                             | 0                 |
-      | function "neg" { parrams = [val] result = -val } # Typo in params | null                   | (none)                         | (null dynamic)                 | 2                 |
+      | hcl_function_definitions                                       | base_context_description         | test_hcl_expression        | decode_diag_count | expected_cty_value                 | eval_diag_count |
+      # Basic function
+      | `function "greet" { params = ["name"] result = "Hello, ${name}." }` | (nil)                            | `greet("Ermintrude")`      | 0                 | StringVal("Hello, Ermintrude.")  | 0               |
+      # Argument errors
+      | `function "greet" { params = ["name"] result = "Hello, ${name}." }` | (nil)                            | `greet()`                  | 0                 | DynamicVal                       | 1               | # Missing arg
+      | `function "greet" { params = ["name"] result = "Hello, ${name}." }` | (nil)                            | `greet("Ermintrude", "extra")`| 0               | DynamicVal                       | 1               | # Too many args
+      # Multiple params
+      | `function "add" { params = ["a", "b"] result = a + b }`        | (nil)                            | `add(1, 5)`                | 0                 | NumberIntVal(6)                  | 0               |
+      # Variadic params
+      | `function "argstuple" { params = [] variadic_param = args result = args }` | (nil)                      | `argstuple("a", true, 1)`  | 0                 | TupleVal([Str("a"),True,Num(1)]) | 0               |
+      # Error in result expression
+      | `function "missing_var" { params = [] result = nonexist }`     | (nil)                            | `missing_var()`            | 0                 | DynamicVal                       | 1               | # "nonexist" undefined
+      # Closure behavior
+      | `function "closure" { params = [] result = upvalue }`          | with var "upvalue" = cty.True    | `closure()`                | 0                 | True                             | 0               |
+      # Nested calls
+      | `function "neg" { params = [val] result = -val } function "add" { params = [a,b] result = a+b }` | (nil) | `neg(add(1, 3))`         | 0                 | NumberIntVal(-4)                 | 0               |
+      # Error in function definition itself
+      | `function "neg" { parrams = [val] result = -val }` # "parrams" is a typo | (nil)                      | `null` # Test expr doesn't matter | 2                 | NullVal(DynamicPseudoType)       | 0               | # 1 for missing "params", 1 for unknown "parrams". Eval diags for `null` is 0.
 
-    # Notes:
-    # - <base_context_setup> describes how the hcl.EvalContext provided to decodeUserFunctions is set up.
-    # - "(dynamic)" represents cty.DynamicVal.
-    # - "(null dynamic)" represents cty.NullVal(cty.DynamicPseudoType).
-    # - "(tuple)" indicates a cty.TupleVal.
+    # Notes for table values:
+    # - `base_context_description`: Describes the hcl.EvalContext returned by ContextFunc. (nil) means nil context.
+    #   "with var 'x' = val" means context has Variables: {"x": val}.
+    # - `expected_cty_value`: Simplified cty.Value string representation (e.g., StringVal("text"), True, NumberIntVal(1)).
+    # - `decode_diag_count`: Diagnostics from DecodeUserFunctions itself.
+    # - `eval_diag_count`: Diagnostics from evaluating the <test_hcl_expression>.
+    # - The scenario for "Error in function definition" implies that the `funcs` map might be incomplete or nil if decode_diag_count > 0,
+    #   and the subsequent evaluation of `null` is just a way to check this without causing further function call errors. The expected cty.Value
+    #   for `null` is indeed `cty.NullVal(cty.DynamicPseudoType)`. The total diags expected are from the decode phase.

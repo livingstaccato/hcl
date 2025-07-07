@@ -1,87 +1,70 @@
-# Covers tests in ./traversal_for_expr_test.go
+# Covers functions in ./traversal_for_expr.go
+# Based on test cases in ./traversal_for_expr_test.go
 # Specifically, TestAbsTraversalForExpr, TestRelTraversalForExpr, and TestExprAsKeyword
 
-Feature: Expression Traversal
-  This feature covers how expressions are traversed and interpreted in HCL.
+Feature: HCL Expression to Traversal or Keyword Conversion
+  This feature tests the ability to interpret HCL expressions as static traversals
+  (absolute or relative) or as simple keywords, without full evaluation. This is
+  useful for configuration elements that expect references or specific identifiers.
 
-  Scenario: Absolute Traversal for Expression - Supported
-    Given an expression that supports traversal with root name "foo"
-    When the absolute traversal for the expression is retrieved
-    Then the traversal should have one step
-    And the first step should be a TraverseRoot
-    And the root name should be "foo"
+  Background:
+    Given mock HCL expressions that can:
+      1. Support traversal, returning a specific `hcl.Traversal` (e.g., `TraverseRoot{Name:"foo"}` or `TraverseRoot{Name:"foo"}, TraverseAttr{Name:"bar"}`).
+      2. Not support traversal (does not implement `AsTraversal` interface effectively).
+      3. Decline traversal (implements `AsTraversal` but returns `nil`).
+      4. Wrap another expression, delegating traversal behavior via `UnwrapExpression`.
 
-  Scenario: Absolute Traversal for Expression - Not Supported
-    Given an expression that does not support traversal
-    When the absolute traversal for the expression is retrieved
-    Then the traversal should be nil
-    And error diagnostics should be present
+  Scenario Outline: Converting an Expression to an Absolute Traversal
+    Given an HCL expression that is <expression_type>
+    And if it supports traversal, its root name is "<root_name>"
+    When `AbsTraversalForExpr` is called with the expression
+    Then if a traversal is expected (<expect_traversal>):
+      And the returned traversal should not be nil
+      And no diagnostics should be reported
+      And the traversal should have 1 step(s)
+      And the first step should be a TraverseRoot with name "<root_name>"
+    And if a traversal is NOT expected (<expect_traversal> is false):
+      And the returned traversal should be nil
+      And diagnostics should be reported indicating an invalid expression for traversal
 
-  Scenario: Absolute Traversal for Expression - Declined
-    Given an expression that declines traversal
-    When the absolute traversal for the expression is retrieved
-    Then the traversal should be nil
-    And error diagnostics should be present
+    Examples:
+      | expression_type                                  | root_name | expect_traversal |
+      | supported (simple root)                          | "foo"     | true             |
+      | not supported                                    |           | false            |
+      | declined                                         |           | false            |
+      | wrapped (delegates to supported simple root)     | "foo"     | true             |
+      | doubly wrapped (delegates to supported simple root)| "foo"     | true             |
 
-  Scenario: Absolute Traversal for Expression - Wrapped Delegated
-    Given a wrapped expression where the original expression supports traversal with root name "foo"
-    When the absolute traversal for the expression is retrieved
-    Then the traversal should have one step
-    And the first step should be a TraverseRoot
-    And the root name should be "foo"
+  Scenario Outline: Converting an Expression to a Relative Traversal
+    Given an HCL expression that is <expression_type>
+    And if it supports traversal, its root name is "<root_name_as_first_attr>"
+    When `RelTraversalForExpr` is called with the expression
+    Then if a traversal is expected (<expect_traversal>):
+      And the returned traversal should not be nil
+      And no diagnostics should be reported
+      And the traversal should have 1 step(s)
+      And the first step should be a TraverseAttr with name "<root_name_as_first_attr>"
+    And if a traversal is NOT expected (<expect_traversal> is false):
+      And the returned traversal should be nil
+      And diagnostics should be reported indicating an invalid expression for traversal
 
-  Scenario: Absolute Traversal for Expression - Doubly Wrapped Delegated
-    Given a doubly wrapped expression where the original expression supports traversal with root name "foo"
-    When the absolute traversal for the expression is retrieved
-    Then the traversal should have one step
-    And the first step should be a TraverseRoot
-    And the root name should be "foo"
+    Examples:
+      | expression_type         | root_name_as_first_attr | expect_traversal |
+      | supported (simple root) | "foo"                   | true             |
+      | not supported           |                         | false            |
+      | declined                |                         | false            |
 
-  Scenario: Relative Traversal for Expression - Supported
-    Given an expression that supports traversal with root name "foo"
-    When the relative traversal for the expression is retrieved
-    Then the traversal should have one step
-    And the first step should be a TraverseAttr
-    And the attribute name should be "foo"
+  Scenario Outline: Converting an Expression to a Keyword
+    Given an HCL expression that is <expression_type>
+    And if it supports traversal, its root name is "<root_name>" and attribute name is "<attr_name>" (if any)
+    When `ExprAsKeyword` is called with the expression
+    Then the resulting string should be "<expected_keyword>"
 
-  Scenario: Relative Traversal for Expression - Not Supported
-    Given an expression that does not support traversal
-    When the relative traversal for the expression is retrieved
-    Then the traversal should be nil
-    And error diagnostics should be present
-
-  Scenario: Relative Traversal for Expression - Declined
-    Given an expression that declines traversal
-    When the relative traversal for the expression is retrieved
-    Then the traversal should be nil
-    And error diagnostics should be present
-
-  Scenario: Expression as Keyword - Supported Root
-    Given an expression that supports traversal with root name "foo"
-    When the expression is treated as a keyword
-    Then the result should be "foo"
-
-  Scenario: Expression as Keyword - Supported Attribute
-    Given an expression that supports traversal with root name "foo" and attribute name "bar"
-    When the expression is treated as a keyword
-    Then the result should be ""
-
-  Scenario: Expression as Keyword - Not Supported
-    Given an expression that does not support traversal
-    When the expression is treated as a keyword
-    Then the result should be ""
-
-  Scenario: Expression as Keyword - Declined
-    Given an expression that declines traversal
-    When the expression is treated as a keyword
-    Then the result should be ""
-
-  Scenario: Expression as Keyword - Wrapped Delegated
-    Given a wrapped expression where the original expression supports traversal with root name "foo"
-    When the expression is treated as a keyword
-    Then the result should be "foo"
-
-  Scenario: Expression as Keyword - Doubly Wrapped Delegated
-    Given a doubly wrapped expression where the original expression supports traversal with root name "foo"
-    When the expression is treated as a keyword
-    Then the result should be "foo"
+    Examples:
+      | expression_type                                  | root_name | attr_name | expected_keyword |
+      | supported (simple root)                          | "foo"     |           | "foo"            |
+      | supported (root and attribute)                   | "foo"     | "bar"     | ""               | # Not a single keyword
+      | not supported                                    |           |           | ""               |
+      | declined                                         |           |           | ""               |
+      | wrapped (delegates to supported simple root)     | "foo"     |           | "foo"            |
+      | doubly wrapped (delegates to supported simple root)| "foo"     |           | "foo"            |

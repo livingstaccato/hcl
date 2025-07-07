@@ -1,44 +1,47 @@
-# Covers tests in ./ext/typeexpr/type_type_test.go
-# Specifically, TestTypeConstraintType and TestConvertFunc
+# Covers functionalities in ./ext/typeexpr/type_type.go
+# Based on test cases in ./ext/typeexpr/type_type_test.go
 
-Feature: Type Constraint Values and Convert Function
-  This feature tests the creation and usage of `TypeConstraint` cty.Value capsules,
-  which represent cty.Type values, and the `ConvertFunc` that uses these
-  capsules to perform type conversions.
+Feature: HCL Type Expressions - Type Constraint Values and Convert Function
+  This feature tests the `TypeConstraintType` cty capsule for representing
+  `cty.Type` values, and the direct invocation of `typeexpr.ConvertFunc`
+  for performing type conversions based on these encapsulated type constraints.
 
-  Scenario: TypeConstraintVal creation and equality
-    Given a TypeConstraintVal `tyVal1` created from `cty.String`
-    And a TypeConstraintVal `tyVal2` created from `cty.String`
-    And a TypeConstraintVal `tyVal3` created from `cty.Number`
-    Then `tyVal1` should be equal to `tyVal2`
-    And `tyVal1` should not be equal to `tyVal3`
-    And extracting the cty.Type from `tyVal1` should yield `cty.String`
-    And extracting the cty.Type from `tyVal3` should yield `cty.Number`
+  Scenario: Creation, equality, and extraction of TypeConstraintVal
+    Given TypeConstraintVal `tcValStr1` is created from `cty.String`
+    And TypeConstraintVal `tcValStr2` is created from `cty.String`
+    And TypeConstraintVal `tcValNum` is created from `cty.Number`
+    Then `tcValStr1` should be equal to `tcValStr2`
+    And `tcValStr1` should not be equal to `tcValNum`
+    When `TypeConstraintFromVal` is called with `tcValStr1`
+    Then the result should be the cty.Type `cty.String`
+    When `TypeConstraintFromVal` is called with `tcValNum`
+    Then the result should be the cty.Type `cty.Number`
 
-  Scenario Outline: Calling ConvertFunc with various inputs
-    Given a cty.Value `<input_value_cty>`
-    And a TypeConstraintVal `<target_type_cty_val>` representing cty.Type `<target_type_cty>`
-    When ConvertFunc is called with `<input_value_cty>` and `<target_type_cty_val>`
-    Then the resulting cty.Value should be `<expected_value_cty>`
+  Scenario Outline: Calling typeexpr.ConvertFunc directly with cty.Values
+    Given an input cty.Value <input_cty_value_repr>
+    And a target cty.Type <target_cty_type_repr>
+    And a TypeConstraintVal `targetTypeCapVal` is created from <target_cty_type_repr>
+    When `typeexpr.ConvertFunc.Call()` is invoked with arguments [<input_cty_value_repr>, `targetTypeCapVal`]
+    Then the resulting cty.Value should be <expected_output_cty_value_repr>
     And if an error is expected, its message should contain "<expected_error_message>"
     And if no error is expected, no error should occur
 
     Examples:
-      | input_value_cty                | target_type_cty_val         | target_type_cty | expected_value_cty           | expected_error_message |
-      | StringVal("hello")             | TypeConstraintVal(String)   | String          | StringVal("hello")           |                        |
-      | True                           | TypeConstraintVal(String)   | String          | StringVal("true")            |                        |
-      | StringVal("hello")             | TypeConstraintVal(Bool)     | Bool            | NilVal                       | "a bool is required"   |
-      | UnknownVal(Bool)               | TypeConstraintVal(Bool)     | Bool            | UnknownVal(Bool)             |                        |
-      | DynamicVal                     | TypeConstraintVal(Bool)     | Bool            | UnknownVal(Bool)             |                        |
-      | NullVal(Bool)                  | TypeConstraintVal(Bool)     | Bool            | NullVal(Bool)                |                        |
-      | NullVal(DynamicPseudoType)     | TypeConstraintVal(Bool)     | Bool            | NullVal(Bool)                |                        |
-      | StringVal("hello").Mark(1)     | TypeConstraintVal(String)   | String          | StringVal("hello").Mark(1)   |                        |
+      | input_cty_value_repr           | target_cty_type_repr | expected_output_cty_value_repr   | expected_error_message |
+      | `StringVal("hello")`           | `cty.String`         | `StringVal("hello")`             |                        | # String to String
+      | `True`                         | `cty.String`         | `StringVal("true")`              |                        | # Bool to String
+      | `StringVal("hello")`           | `cty.Bool`           | `NilVal`                         | "a bool is required"   | # String to Bool (invalid)
+      | `UnknownVal(cty.Bool)`         | `cty.Bool`           | `UnknownVal(cty.Bool)`           |                        | # Unknown Bool to Bool
+      | `DynamicVal`                   | `cty.Bool`           | `UnknownVal(cty.Bool)`           |                        | # Dynamic to Bool
+      | `NullVal(cty.Bool)`            | `cty.Bool`           | `NullVal(cty.Bool)`              |                        | # Null Bool to Bool
+      | `NullVal(cty.DynamicPseudoType)`| `cty.Bool`           | `NullVal(cty.Bool)`              |                        | # Null Dynamic to Bool
+      | `StringVal("hello").Mark(1)`   | `cty.String`         | `StringVal("hello").Mark(1)`     |                        | # String with mark to String
 
-    # Notes:
-    # - cty types like String, Bool, Number are shorthand for cty.String, cty.Bool, etc.
-    # - TypeConstraintVal(Type) means creating a type constraint value from the given cty.Type.
-    # - Values like StringVal("hello") are cty.Value representations.
-    # - NilVal implies cty.NilVal.
-    # - UnknownVal(Type) means cty.UnknownVal(cty.Type).
-    # - DynamicVal means cty.DynamicVal.
-    # - Marks like .Mark(1) are cty value marks.
+    # Notes for table values:
+    # - `cty_value_repr` and `target_cty_type_repr` are string representations of how these cty values/types are constructed in Go tests.
+    # - E.g., `StringVal("hello")` means `cty.StringVal("hello")`. `True` means `cty.True`.
+    # - `NilVal` implies `cty.NilVal` (likely from `convert.Convert` failure).
+    # - `UnknownVal(cty.Type)` means `cty.UnknownVal(the_type)`. `DynamicVal` means `cty.DynamicVal`.
+    # - `.Mark(1)` indicates a cty value mark.
+    # - The custom decoding behavior of TypeConstraintType when used in HCL expressions is tested separately
+    #   in features/integrationtest/convertfunc.feature. This scenario tests direct function calls.
